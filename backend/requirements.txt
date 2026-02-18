@@ -1,0 +1,10 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-dotenv==1.0.1
+
+# Catalog search (empezamos con Data Catalog; luego migramos a Dataplex)
+google-cloud-datacatalog==3.19.1
+google-auth==2.35.0
+
+# (para preview BigQuery más adelante)
+google-cloud-bigquery==3.27.0
