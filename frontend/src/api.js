@@ -24,6 +24,10 @@ async function httpPost(path, body) {
 
 export const api = {
   search: (q) => httpGet(`/search?q=${encodeURIComponent(q)}&page_size=25`),
+
+  preview: (linked_resource, limit = 10) =>
+    httpGet(`/assets/preview?linked_resource=${encodeURIComponent(linked_resource)}&limit=${limit}`),
+
   createRequest: (payload) => httpPost(`/access-requests`, payload),
   listRequests: (status = "PENDING") => httpGet(`/access-requests?status=${encodeURIComponent(status)}`),
   getRequest: (id) => httpGet(`/access-requests/${id}`),

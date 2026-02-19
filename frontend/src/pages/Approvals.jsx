@@ -29,7 +29,10 @@ export default function Approvals() {
 
   async function decide(id, decision) {
     try {
-      await api.approve(id, { role, approver_email: approverEmail, decision });
+      const res = await api.approve(id, { role, approver_email: approverEmail, decision });
+      if (res?.provisioning) {
+        alert(`Provisioning: ${res.provisioning.ok ? "OK" : "FAILED"}\n${JSON.stringify(res.provisioning, null, 2)}`);
+      }
       await load();
     } catch (ex) {
       alert(ex.message || "Error");

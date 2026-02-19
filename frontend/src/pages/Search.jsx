@@ -28,13 +28,13 @@ export default function Search({ onSelect }) {
   const columns = [
     { key: "display_name", label: "Name" },
     { key: "type", label: "Type" },
-    { key: "integrated_system", label: "System" },
+    { key: "system", label: "System" },
     { key: "linked_resource", label: "Resource" }
   ];
 
   const tableRows = rows.map((r) => ({
     ...r,
-    integrated_system: <Badge>{r.integrated_system}</Badge>,
+    system: <Badge>{r.system || r.integrated_system || "UNKNOWN"}</Badge>,
     type: <Badge>{r.type}</Badge>,
     linked_resource: <span className="mono">{r.linked_resource}</span>
   }));
@@ -63,7 +63,7 @@ export default function Search({ onSelect }) {
       </div>
 
       <p style={{ opacity: 0.7, marginTop: 12 }}>
-        Tip: This MVP uses mock search results until GCP integration is enabled.
+        If CATALOG_PROVIDER=mock you will see sample assets. If dataplex, results come from your GCP catalog.
       </p>
     </div>
   );
