@@ -1,10 +1,17 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import Table from "../components/Table.jsx";
 import Badge from "../components/Badge.jsx";
+import { setSelectedAsset } from "../store.js";
 
-export default function Search({ onSelect }) {
+export default function Search() {
+  const nav = useNavigate();
+
   const [q, setQ] = useState("");
+  const [system, setSystem] = useState("ANY");
+  const [type, setType] = useState("ANY");
+
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
@@ -12,11 +19,17 @@ export default function Search({ onSelect }) {
   async function runSearch(e) {
     e.preventDefault();
     if (q.trim().length < 2) return;
+
     setLoading(true);
     setErr("");
     try {
       const data = await api.search(q.trim());
-      setRows(data.items || []);
+      let items = data.items || [];
+
+      if (system !== "ANY") items = items.filter((x) => (x.system || x.integrated_system) === system);
+      if (type !== "ANY") items = items.filter((x) => String(x.type || "").toUpperCase().includes(type));
+
+      setRows(items);
     } catch (ex) {
       setErr(ex.message || "Error");
       setRows([]);
@@ -35,18 +48,34 @@ export default function Search({ onSelect }) {
   const tableRows = rows.map((r) => ({
     ...r,
     system: <Badge>{r.system || r.integrated_system || "UNKNOWN"}</Badge>,
-    type: <Badge>{r.type}</Badge>,
+    type: <Badge>{String(r.type || "UNKNOWN")}</Badge>,
     linked_resource: <span className="mono">{r.linked_resource}</span>
   }));
 
+  function openAsset(asset) {
+    setSelectedAsset(asset);
+    nav("/asset");
+  }
+
   return (
     <div>
-      <form onSubmit={runSearch} className="row">
+      <form onSubmit={runSearch} className="row" style={{ gap: 10 }}>
         <input
           placeholder='Search assets (e.g. "sales", "customer", "gold")'
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <select value={system} onChange={(e) => setSystem(e.target.value)} style={{ width: 160 }}>
+          <option value="ANY">System: Any</option>
+          <option value="BIGQUERY">BIGQUERY</option>
+          <option value="DATAPLEX">DATAPLEX</option>
+        </select>
+        <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 140 }}>
+          <option value="ANY">Type: Any</option>
+          <option value="TABLE">TABLE</option>
+          <option value="DATASET">DATASET</option>
+          <option value="ENTRY">ENTRY</option>
+        </select>
         <button disabled={loading || q.trim().length < 2}>
           {loading ? "Searching..." : "Search"}
         </button>
@@ -58,13 +87,13 @@ export default function Search({ onSelect }) {
         <Table
           columns={columns}
           rows={tableRows}
-          onRowClick={(row) => onSelect(rows[tableRows.indexOf(row)])}
+          onRowClick={(row) => openAsset(rows[tableRows.indexOf(row)])}
         />
       </div>
 
-      <p style={{ opacity: 0.7, marginTop: 12 }}>
-        If CATALOG_PROVIDER=mock you will see sample assets. If dataplex, results come from your GCP catalog.
-      </p>
+      <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
+        Click a row to open the asset.
+      </div>
     </div>
   );
 }

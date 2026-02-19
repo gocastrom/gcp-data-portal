@@ -24,7 +24,7 @@ from app.access_requests import (  # noqa: E402
     set_status,
 )
 from app.catalog_provider import search_assets  # noqa: E402
-from app.bq_preview import preview_table  # noqa: E402
+from app.preview_provider import preview  # noqa: E402
 from app.iam_provisioning import grant_bigquery_viewer  # noqa: E402
 
 
@@ -69,7 +69,7 @@ def asset_preview(
     linked_resource: str = Query(..., min_length=10),
     limit: int = Query(10, ge=1, le=100),
 ):
-    return preview_table(linked_resource=linked_resource, limit=limit)
+    return preview(linked_resource=linked_resource, limit=limit)
 
 # ---------- ACCESS REQUESTS ----------
 class AccessRequestIn(BaseModel):

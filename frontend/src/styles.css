@@ -2,17 +2,29 @@
 body { margin: 0; background: #fafafa; color: #111; }
 a { color: inherit; }
 .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
 .card { background: white; border: 1px solid #eee; border-radius: 14px; padding: 16px; }
 .row { display: flex; gap: 12px; align-items: center; }
-.nav { display: flex; gap: 14px; margin-bottom: 16px; }
-.nav a { text-decoration: none; padding: 8px 10px; border-radius: 10px; border: 1px solid #eee; background: white; }
-.nav a.active { border-color: #111; }
-input, select, textarea { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #ddd; }
+
+.nav { display: flex; gap: 14px; margin: 16px 0; }
+
+input, select, textarea { width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #ddd; background: white; }
 button { padding: 10px 12px; border-radius: 10px; border: 1px solid #ddd; background: #111; color: white; cursor: pointer; }
 button.secondary { background: white; color: #111; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
 .badge { display: inline-block; padding: 4px 8px; border-radius: 999px; border: 1px solid #eee; background: #f6f6f6; font-size: 12px; }
 .error { margin-top: 10px; padding: 10px; border-radius: 12px; background: #fff3cd; border: 1px solid #ffeeba; }
+
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.title { font-size: 22px; font-weight: 800; }
+.subtitle { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+.topbar-right { display: flex; gap: 10px; align-items: center; }
+
+.tabs { display: flex; gap: 8px; margin-top: 14px; }
+.tab { background: white; color: #111; border: 1px solid #eee; padding: 8px 10px; border-radius: 12px; }
+.tab.active { background: #111; color: white; border-color: #111; }

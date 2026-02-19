@@ -1,8 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
+import { getSelectedAsset } from "../store.js";
+import { getAuth } from "../auth.js";
 
-export default function RequestAccess({ asset, onBack, onDone }) {
-  const [email, setEmail] = useState("");
+export default function RequestAccess() {
+  const nav = useNavigate();
+  const asset = useMemo(() => getSelectedAsset(), []);
+  const auth = getAuth();
+
+  const [email, setEmail] = useState(auth?.email || "");
   const [level, setLevel] = useState("READ_TABLE");
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14,7 +21,7 @@ export default function RequestAccess({ asset, onBack, onDone }) {
     setErr("");
     setOk("");
 
-    if (!asset) return setErr("No asset selected");
+    if (!asset) return setErr("No asset selected (go to Search and open an asset first)");
     if (!email.includes("@")) return setErr("Enter a valid email");
     if (reason.trim().length < 5) return setErr("Reason must be at least 5 characters");
 
@@ -43,9 +50,9 @@ export default function RequestAccess({ asset, onBack, onDone }) {
         <div className="mono">{asset?.linked_resource || "-"}</div>
       </div>
 
-      <form onSubmit={submit}>
+      <form onSubmit={submit} style={{ maxWidth: 720 }}>
         <div style={{ marginBottom: 10 }}>
-          <label style={{ fontSize: 12, opacity: 0.7 }}>Your email</label>
+          <label style={{ fontSize: 12, opacity: 0.7 }}>Requester email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@company.com" />
         </div>
 
@@ -66,9 +73,9 @@ export default function RequestAccess({ asset, onBack, onDone }) {
         {ok && <div style={{ marginTop: 10, opacity: 0.9 }}>✅ {ok}</div>}
 
         <div className="row" style={{ marginTop: 12 }}>
-          <button type="button" className="secondary" onClick={onBack}>Back</button>
+          <button type="button" className="secondary" onClick={() => nav("/asset")}>Back</button>
           <button disabled={loading}>{loading ? "Submitting..." : "Submit"}</button>
-          <button type="button" className="secondary" onClick={onDone}>Go to Approvals</button>
+          <button type="button" className="secondary" onClick={() => nav("/approvals")}>Go to Approvals</button>
         </div>
       </form>
     </div>
