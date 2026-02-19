@@ -1,15 +1,34 @@
-# GCP Setup (MVP)
-1) Enable APIs:
-- Dataplex API (catalog search)
-- (Optional) BigQuery API (preview)
+# GCP Setup (Public)
 
-2) Create Service Account (optional for local):
-- roles/dataplex.viewer
-- (Optional) roles/bigquery.jobUser
+This repo contains no credentials. You must configure your own GCP project.
 
-3) Local auth options:
-A) ADC (recommended):
-   gcloud auth application-default login
-B) Service account JSON (NOT committed):
-   backend/keys/service-account.json
-   export GOOGLE_APPLICATION_CREDENTIALS=backend/keys/service-account.json
+## 1) Enable APIs
+- Dataplex API
+- BigQuery API
+
+## 2) Create Service Account
+Example: data-portal-sa
+
+## 3) Grant minimal roles
+For search (Dataplex Universal Catalog):
+- Dataplex Viewer (or equivalent permissions to search entries)
+
+For BigQuery preview:
+- BigQuery Job User
+- BigQuery Data Viewer (on datasets you want to preview)
+
+For provisioning (optional):
+- BigQuery Admin OR a limited custom role to edit dataset access entries
+
+## 4) Local auth
+Create backend/.env with:
+
+GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+GOOGLE_APPLICATION_CREDENTIALS=./keys/service-account.json
+CATALOG_PROVIDER=dataplex
+ENABLE_PROVISIONING=false
+PORT=8000
+
+Never commit:
+- backend/.env
+- backend/keys/service-account.json
