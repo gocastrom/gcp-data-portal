@@ -1,5 +1,9 @@
 import os
 from pathlib import Path
+
+from app.env_loader import load_env_from_string
+load_env_from_string()
+
 from typing import Optional
 
 from fastapi import FastAPI, Query, HTTPException
