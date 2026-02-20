@@ -26,6 +26,13 @@ export default function Search() {
       const data = await api.search(q.trim());
       let items = data.items || [];
 
+      // Normalizar keys para que el front sea compatible con backend mock (name/resource)
+      items = items.map((x) => ({
+        ...x,
+        display_name: x.display_name || x.name || x.asset_name || x.id || "UNKNOWN",
+        linked_resource: x.linked_resource || x.resource || x.self_link || x.uri || ""
+      }));
+
       if (system !== "ANY") items = items.filter((x) => (x.system || x.integrated_system) === system);
       if (type !== "ANY") items = items.filter((x) => String(x.type || "").toUpperCase().includes(type));
 
@@ -47,9 +54,10 @@ export default function Search() {
 
   const tableRows = rows.map((r) => ({
     ...r,
+    display_name: <span style={{ fontWeight: 600 }}>{r.display_name || "UNKNOWN"}</span>,
     system: <Badge>{r.system || r.integrated_system || "UNKNOWN"}</Badge>,
     type: <Badge>{String(r.type || "UNKNOWN")}</Badge>,
-    linked_resource: <span className="mono">{r.linked_resource}</span>
+    linked_resource: <span className="mono">{r.linked_resource || "-"}</span>
   }));
 
   function openAsset(asset) {

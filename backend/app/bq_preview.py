@@ -1,40 +1,34 @@
-import re
-from typing import Dict, Any, List
+from __future__ import annotations
 
-from google.cloud import bigquery
-from google.api_core.exceptions import Forbidden, NotFound
+import os
+from fastapi import APIRouter, Query
 
+router = APIRouter()
 
-BQ_LINK_RE = re.compile(
-    r"//bigquery\.googleapis\.com/projects/(?P<project>[^/]+)/datasets/(?P<dataset>[^/]+)/tables/(?P<table>[^/]+)"
-)
+def _is_mock() -> bool:
+    return os.getenv("MOCK_MODE", "true").lower() in ("1", "true", "yes", "y")
 
-def parse_bq_linked_resource(linked_resource: str):
-    m = BQ_LINK_RE.match(linked_resource or "")
-    if not m:
-        return None
-    return m.group("project"), m.group("dataset"), m.group("table")
+@router.get("/assets/preview")
+def preview_asset(
+    linked_resource: str = Query(..., description="e.g. bigquery://project.dataset.table"),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """
+    MVP:
+    - En MOCK_MODE=true: retorna filas dummy.
+    - En producción: aquí iría BigQuery client + SELECT * LIMIT N (con controles).
+    """
+    if _is_mock():
+        rows = []
+        for i in range(1, limit + 1):
+            rows.append({"row": i, "example_col_1": "value", "example_col_2": (i - 1) * 10})
+        return {"ok": True, "mode": "mock", "linked_resource": linked_resource, "rows": rows}
 
-def preview_table(linked_resource: str, limit: int = 10) -> Dict[str, Any]:
-    parsed = parse_bq_linked_resource(linked_resource)
-    if not parsed:
-        return {"ok": False, "error": "Unsupported linked_resource for BigQuery preview"}
-
-    project, dataset, table = parsed
-    client = bigquery.Client(project=project)
-
-    sql = f"SELECT * FROM `{project}.{dataset}.{table}` LIMIT {int(limit)}"
-    try:
-        rows = client.query(sql).result()
-        cols = [f.name for f in rows.schema]
-        data: List[List[Any]] = []
-        for r in rows:
-            data.append([r.get(c) for c in cols])
-        return {"ok": True, "columns": cols, "rows": data}
-
-    except Forbidden as e:
-        # user/service account doesn't have access
-        return {"ok": False, "error": "FORBIDDEN", "message": str(e)}
-
-    except NotFound as e:
-        return {"ok": False, "error": "NOT_FOUND", "message": str(e)}
+    # Placeholder modo real (sin conectar GCP todavía)
+    return {
+        "ok": True,
+        "mode": "real_not_implemented",
+        "linked_resource": linked_resource,
+        "rows": [],
+        "message": "Preview real no implementado en este MVP. Usa MOCK_MODE=true.",
+    }

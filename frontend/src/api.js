@@ -1,35 +1,56 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-async function httpGet(path) {
-  const res = await fetch(`${API_BASE}${path}`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.detail || "Request failed");
-  }
-  return data;
+// MVP: usuario mock desde UI
+function defaultHeaders() {
+  const email = localStorage.getItem("user_email") || "user@company.com";
+  const role = localStorage.getItem("user_role") || "USER";
+  const mock = localStorage.getItem("mock_mode") || "1"; // 1=sin GCP, 0=con GCP
+  return {
+    "X-User-Email": email,
+    "X-User-Role": role,
+    "X-Mock": mock
+  };
 }
 
-async function httpPost(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+async function fetchJson(path, opts = {}) {
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...defaultHeaders(),
+      ...(opts.headers || {})
+    }
   });
-  const data = await res.json().catch(() => ({}));
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = { raw: text };
+  }
+
   if (!res.ok) {
-    throw new Error(data.detail || "Request failed");
+    const msg =
+      (data && (data.detail || data.message)) ||
+      `HTTP ${res.status} ${res.statusText}`;
+    throw new Error(msg);
   }
   return data;
 }
 
 export const api = {
-  search: (q) => httpGet(`/search?q=${encodeURIComponent(q)}&page_size=25`),
+  // Catalog schema (Dataplex/BigQuery metadata)
+  getSchema: (linked_resource) => {
+    const params = new URLSearchParams({ linked_resource });
+    return fetchJson(`/assets/schema?${params.toString()}`, { method: "GET" });
+  },
 
-  preview: (linked_resource, limit = 10) =>
-    httpGet(`/assets/preview?linked_resource=${encodeURIComponent(linked_resource)}&limit=${limit}`),
-
-  createRequest: (payload) => httpPost(`/access-requests`, payload),
-  listRequests: (status = "PENDING") => httpGet(`/access-requests?status=${encodeURIComponent(status)}`),
-  getRequest: (id) => httpGet(`/access-requests/${id}`),
-  approve: (id, payload) => httpPost(`/access-requests/${id}/approve`, payload)
+  updateSchema: (payload) => {
+    return fetchJson(`/assets/schema`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+  }
 };

@@ -1,120 +1,139 @@
-import sqlite3
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, Any, List
+from __future__ import annotations
 
-DB_PATH = Path(__file__).resolve().parents[1] / "app.db"
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+from uuid import uuid4
 
-def _connect():
-    return sqlite3.connect(DB_PATH)
+from fastapi import APIRouter, Body, HTTPException, Query
 
-def init_db():
-    con = _connect()
-    cur = con.cursor()
+router = APIRouter()
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS access_requests(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      requester_email TEXT NOT NULL,
-      linked_resource TEXT NOT NULL,
-      access_level TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    )
-    """)
+# In-memory store (MVP). In producción: DB (Cloud SQL / Firestore) + audit/trace.
+_REQUESTS: Dict[str, dict] = {}
 
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS approvals(
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      request_id INTEGER NOT NULL,
-      role TEXT NOT NULL,
-      approver_email TEXT NOT NULL,
-      decision TEXT NOT NULL,
-      decided_at TEXT NOT NULL,
-      FOREIGN KEY(request_id) REFERENCES access_requests(id)
-    )
-    """)
 
-    con.commit()
-    con.close()
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-def create_request(requester_email: str, linked_resource: str, access_level: str, reason: str) -> int:
-    con = _connect()
-    cur = con.cursor()
-    cur.execute(
-        "INSERT INTO access_requests(requester_email, linked_resource, access_level, reason, status, created_at) VALUES (?,?,?,?,?,?)",
-        (requester_email, linked_resource, access_level, reason, "PENDING", datetime.utcnow().isoformat()),
-    )
-    rid = cur.lastrowid
-    con.commit()
-    con.close()
-    return rid
 
-def list_requests(status: str = "PENDING") -> List[Dict[str, Any]]:
-    con = _connect()
-    cur = con.cursor()
-    cur.execute(
-        "SELECT id, requester_email, linked_resource, access_level, reason, status, created_at FROM access_requests WHERE status=? ORDER BY id DESC",
-        (status,),
-    )
-    rows = cur.fetchall()
-    con.close()
-    return [
-        {
-            "id": r[0],
-            "requester_email": r[1],
-            "linked_resource": r[2],
-            "access_level": r[3],
-            "reason": r[4],
-            "status": r[5],
-            "created_at": r[6],
-        }
-        for r in rows
-    ]
+def seed_if_empty() -> None:
+    """Seed minimal demo data only once."""
+    if _REQUESTS:
+        return
 
-def get_request(request_id: int) -> Dict[str, Any]:
-    con = _connect()
-    cur = con.cursor()
-    cur.execute(
-        "SELECT id, requester_email, linked_resource, access_level, reason, status, created_at FROM access_requests WHERE id=?",
-        (request_id,),
-    )
-    row = cur.fetchone()
-    con.close()
-    if not row:
-        raise KeyError("Request not found")
-    return {
-        "id": row[0],
-        "requester_email": row[1],
-        "linked_resource": row[2],
-        "access_level": row[3],
-        "reason": row[4],
-        "status": row[5],
-        "created_at": row[6],
+    rid = str(uuid4())
+    _REQUESTS[rid] = {
+        "id": rid,
+        "linked_resource": "bigquery://demo.retail.sales_daily_gold",
+        "reason": "Necesito el dataset para análisis/reporting.",
+        "requested_role": "READER",
+        "access_level": "READER",
+        "requester_email": "user@company.com",
+        "data_owner": "data.owner@company.com",
+        "data_steward": "data.steward@company.com",
+        "status": "PENDING",
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+        "decision": None,
+        "decision_by": None,
+        "decision_at": None,
+        "decision_reason": None,
     }
 
-def add_approval(request_id: int, role: str, approver_email: str, decision: str):
-    con = _connect()
-    cur = con.cursor()
-    cur.execute(
-        "INSERT INTO approvals(request_id, role, approver_email, decision, decided_at) VALUES (?,?,?,?,?)",
-        (request_id, role, approver_email, decision, datetime.utcnow().isoformat()),
-    )
-    con.commit()
-    con.close()
 
-def approvals_for_request(request_id: int) -> Dict[str, str]:
-    con = _connect()
-    cur = con.cursor()
-    cur.execute("SELECT role, decision FROM approvals WHERE request_id=?", (request_id,))
-    rows = cur.fetchall()
-    con.close()
-    return {r[0]: r[1] for r in rows}
+@router.post("/access-requests")
+def create_access_request(payload: dict = Body(...)):
+    seed_if_empty()
 
-def set_status(request_id: int, status: str):
-    con = _connect()
-    cur = con.cursor()
-    cur.execute("UPDATE access_requests SET status=? WHERE id=?", (status, request_id))
-    con.commit()
-    con.close()
+    # Required fields (keep it simple)
+    required = ["linked_resource", "reason", "requester_email", "access_level"]
+    missing = [k for k in required if not payload.get(k)]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Missing required fields: {', '.join(missing)}")
+
+    rid = str(uuid4())
+    req = {
+        "id": rid,
+        "linked_resource": payload["linked_resource"],
+        "reason": payload["reason"],
+        "requested_role": payload.get("requested_role", payload.get("access_level", "READER")),
+        "access_level": payload.get("access_level", "READER"),
+        "requester_email": payload["requester_email"],
+        "data_owner": payload.get("data_owner"),
+        "data_steward": payload.get("data_steward"),
+        "status": "PENDING",
+        "created_at": _now_iso(),
+        "updated_at": _now_iso(),
+        "decision": None,
+        "decision_by": None,
+        "decision_at": None,
+        "decision_reason": None,
+    }
+    _REQUESTS[rid] = req
+    return {"ok": True, "item": req}
+
+
+@router.get("/access-requests")
+def list_access_requests(
+    status: str = Query("PENDING", description="PENDING|APPROVED|REJECTED"),
+    limit: int = Query(50, ge=1, le=500),
+):
+    seed_if_empty()
+
+    items = list(_REQUESTS.values())
+    if status:
+        items = [x for x in items if x.get("status") == status]
+
+    # latest first
+    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return {"ok": True, "items": items[:limit]}
+
+
+def _get_or_404(rid: str) -> dict:
+    req = _REQUESTS.get(rid)
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+    return req
+
+
+@router.post("/access-requests/{request_id}/approve")
+def approve_access_request(
+    request_id: str,
+    actor_email: str = Body(..., embed=True),
+    comment: Optional[str] = Body(None, embed=True),
+):
+    seed_if_empty()
+    req = _get_or_404(request_id)
+    if req["status"] != "PENDING":
+        raise HTTPException(status_code=409, detail=f"Request is {req['status']}, cannot approve")
+
+    req["status"] = "APPROVED"
+    req["decision"] = "APPROVED"
+    req["decision_by"] = actor_email
+    req["decision_at"] = _now_iso()
+    req["decision_reason"] = comment
+    req["updated_at"] = _now_iso()
+
+    # En producción: aquí disparas workflow real (Dataplex / BigQuery IAM / Datasets / row-level security, etc.)
+    return {"ok": True, "item": req}
+
+
+@router.post("/access-requests/{request_id}/reject")
+def reject_access_request(
+    request_id: str,
+    actor_email: str = Body(..., embed=True),
+    comment: Optional[str] = Body(None, embed=True),
+):
+    seed_if_empty()
+    req = _get_or_404(request_id)
+    if req["status"] != "PENDING":
+        raise HTTPException(status_code=409, detail=f"Request is {req['status']}, cannot reject")
+
+    req["status"] = "REJECTED"
+    req["decision"] = "REJECTED"
+    req["decision_by"] = actor_email
+    req["decision_at"] = _now_iso()
+    req["decision_reason"] = comment
+    req["updated_at"] = _now_iso()
+
+    return {"ok": True, "item": req}
