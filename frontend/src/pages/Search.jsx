@@ -1,64 +1,55 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
-import Table from "../components/Table.jsx";
-import Badge from "../components/Badge.jsx";
 import { setSelectedAsset } from "../store.js";
+
+const SYSTEMS = ["", "BIGQUERY", "DATAPLEX"];
+const TYPES = ["", "TABLE", "ENTRY"];
+const DOMAINS = ["", "Retail", "Logistics", "CRM", "Ecommerce"];
 
 export default function Search() {
   const nav = useNavigate();
 
-  const [q, setQ] = useState("");
-  const [system, setSystem] = useState("ANY");
-  const [type, setType] = useState("ANY");
+  const [q, setQ] = useState("sales");
+  const [system, setSystem] = useState("");
+  const [type, setType] = useState("");
+  const [domain, setDomain] = useState("");
+  const [tags, setTags] = useState(""); // comma-separated
 
+  const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState([]);
   const [err, setErr] = useState("");
 
-  async function runSearch(e) {
-    e.preventDefault();
-    if (q.trim().length < 2) return;
+  const effectiveQuery = useMemo(() => q.trim(), [q]);
 
+  async function runSearch(e) {
+    e?.preventDefault?.();
     setLoading(true);
     setErr("");
+    setResults([]);
     try {
-      const data = await api.search(q.trim());
-      let items = data.items || [];
+      const data = await api.search(effectiveQuery, {
+        page_size: 20,
+        system: system || undefined,
+        type: type || undefined,
+      });
 
-      // Normalizar keys para que el front sea compatible con backend mock (name/resource)
-      items = items.map((x) => ({
-        ...x,
-        display_name: x.display_name || x.name || x.asset_name || x.id || "UNKNOWN",
-        linked_resource: x.linked_resource || x.resource || x.self_link || x.uri || ""
-      }));
+      // backend now supports domain/tags; if your api.js doesn't pass them, we filter here as fallback:
+      let items = data?.items || [];
 
-      if (system !== "ANY") items = items.filter((x) => (x.system || x.integrated_system) === system);
-      if (type !== "ANY") items = items.filter((x) => String(x.type || "").toUpperCase().includes(type));
+      if (domain) items = items.filter((x) => (x.domain || "") === domain);
+      if (tags.trim()) {
+        const tfs = tags.split(",").map((s) => s.trim()).filter(Boolean);
+        items = items.filter((x) => tfs.every((t) => (x.tags || []).includes(t)));
+      }
 
-      setRows(items);
-    } catch (ex) {
-      setErr(ex.message || "Error");
-      setRows([]);
+      setResults(items);
+    } catch (e2) {
+      setErr(e2?.message || "Error");
     } finally {
       setLoading(false);
     }
   }
-
-  const columns = [
-    { key: "display_name", label: "Name" },
-    { key: "type", label: "Type" },
-    { key: "system", label: "System" },
-    { key: "linked_resource", label: "Resource" }
-  ];
-
-  const tableRows = rows.map((r) => ({
-    ...r,
-    display_name: <span style={{ fontWeight: 600 }}>{r.display_name || "UNKNOWN"}</span>,
-    system: <Badge>{r.system || r.integrated_system || "UNKNOWN"}</Badge>,
-    type: <Badge>{String(r.type || "UNKNOWN")}</Badge>,
-    linked_resource: <span className="mono">{r.linked_resource || "-"}</span>
-  }));
 
   function openAsset(asset) {
     setSelectedAsset(asset);
@@ -67,40 +58,85 @@ export default function Search() {
 
   return (
     <div>
-      <form onSubmit={runSearch} className="row" style={{ gap: 10 }}>
-        <input
-          placeholder='Search assets (e.g. "sales", "customer", "gold")'
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <select value={system} onChange={(e) => setSystem(e.target.value)} style={{ width: 160 }}>
-          <option value="ANY">System: Any</option>
-          <option value="BIGQUERY">BIGQUERY</option>
-          <option value="DATAPLEX">DATAPLEX</option>
-        </select>
-        <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 140 }}>
-          <option value="ANY">Type: Any</option>
-          <option value="TABLE">TABLE</option>
-          <option value="DATASET">DATASET</option>
-          <option value="ENTRY">ENTRY</option>
-        </select>
-        <button disabled={loading || q.trim().length < 2}>
-          {loading ? "Searching..." : "Search"}
-        </button>
-      </form>
+      <div className="card">
+        <form onSubmit={runSearch} style={{ display: "grid", gap: 12 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <input
+                type="search"
+                placeholder="Search assets (sales, inventory, crm, orders...)"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+            </div>
+            <button type="submit" disabled={loading || !effectiveQuery}>
+              {loading ? "Searching..." : "Search"}
+            </button>
+          </div>
 
-      {err && <div className="error">⚠️ {err}</div>}
+          <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 900, marginBottom: 6 }}>System</div>
+              <select value={system} onChange={(e) => setSystem(e.target.value)}>
+                {SYSTEMS.map((s) => (
+                  <option key={s} value={s}>{s || "All"}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 900, marginBottom: 6 }}>Type</div>
+              <select value={type} onChange={(e) => setType(e.target.value)}>
+                {TYPES.map((t) => (
+                  <option key={t} value={t}>{t || "All"}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 900, marginBottom: 6 }}>Domain</div>
+              <select value={domain} onChange={(e) => setDomain(e.target.value)}>
+                {DOMAINS.map((d) => (
+                  <option key={d} value={d}>{d || "All"}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 900, marginBottom: 6 }}>Tags (comma)</div>
+              <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="gold,kpi" />
+            </div>
+          </div>
+        </form>
 
-      <div style={{ marginTop: 14 }}>
-        <Table
-          columns={columns}
-          rows={tableRows}
-          onRowClick={(row) => openAsset(rows[tableRows.indexOf(row)])}
-        />
+        {err && <div className="error" style={{ marginTop: 12 }}>⚠️ {err}</div>}
       </div>
 
-      <div style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
-        Click a row to open the asset.
+      <div style={{ display: "grid", gap: 12 }}>
+        {results.map((r) => (
+          <div key={r.linked_resource} className="card" onClick={() => openAsset(r)} style={{ cursor: "pointer" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 900 }}>{r.display_name}</div>
+                <div style={{ marginTop: 6, opacity: 0.82 }}>{r.description}</div>
+                <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span className="pill">{r.system}</span>
+                  <span className="pill">{r.type}</span>
+                  {r.domain && <span className="pill">{r.domain}</span>}
+                  {(r.tags || []).slice(0, 8).map((t) => (
+                    <span className="pill" key={t}>{t}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="pill" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                {String(r.linked_resource).replace("bigquery://", "bq://").replace("dataplex://", "dlp://")}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {!loading && results.length === 0 && (
+          <div className="card">
+            <div style={{ opacity: 0.7, fontWeight: 700 }}>No results</div>
+          </div>
+        )}
       </div>
     </div>
   );

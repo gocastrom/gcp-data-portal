@@ -1,3 +1,3 @@
 export default function Badge({ children }) {
-  return <span className="badge">{children}</span>;
+  return <span className="pill">{children}</span>;
 }

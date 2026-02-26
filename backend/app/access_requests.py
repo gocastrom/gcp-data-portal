@@ -1,139 +1,122 @@
-from __future__ import annotations
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+import uuid
 
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
-from uuid import uuid4
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
-from fastapi import APIRouter, Body, HTTPException, Query
+router = APIRouter(tags=["access-requests"])
 
-router = APIRouter()
+# -----------------------------
+# MVP MOCK STORAGE (in-memory)
+# -----------------------------
+# En producción:
+# - Persistir en Firestore / Cloud SQL
+# - Auditar en Cloud Logging / BigQuery
+# - Enforce auth via IAP/OAuth + verify JWT
+# - Validar IAM real (BigQuery / Dataplex)
+_DB: Dict[str, Dict[str, Any]] = {}
 
-# In-memory store (MVP). In producción: DB (Cloud SQL / Firestore) + audit/trace.
-_REQUESTS: Dict[str, dict] = {}
+
+class AccessRequestCreate(BaseModel):
+    linked_resource: str = Field(..., description="bigquery://... or dataplex://...")
+    requester_email: str
+    access_level: str = Field(..., description="READER/WRITER")
+    reason: str
+    data_owner: str = Field(..., description="Único aprobador (owner) en este MVP")
+
+
+class AccessRequestDecision(BaseModel):
+    decision: str = Field(..., description="APPROVED or REJECTED")
+    decided_by: str = Field(..., description="Email del que decide (owner/admin)")
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def seed_if_empty() -> None:
-    """Seed minimal demo data only once."""
-    if _REQUESTS:
-        return
-
-    rid = str(uuid4())
-    _REQUESTS[rid] = {
-        "id": rid,
-        "linked_resource": "bigquery://demo.retail.sales_daily_gold",
-        "reason": "Necesito el dataset para análisis/reporting.",
-        "requested_role": "READER",
-        "access_level": "READER",
-        "requester_email": "user@company.com",
-        "data_owner": "data.owner@company.com",
-        "data_steward": "data.steward@company.com",
-        "status": "PENDING",
-        "created_at": _now_iso(),
-        "updated_at": _now_iso(),
-        "decision": None,
-        "decision_by": None,
-        "decision_at": None,
-        "decision_reason": None,
-    }
+    return datetime.utcnow().isoformat() + "Z"
 
 
 @router.post("/access-requests")
-def create_access_request(payload: dict = Body(...)):
-    seed_if_empty()
-
-    # Required fields (keep it simple)
-    required = ["linked_resource", "reason", "requester_email", "access_level"]
-    missing = [k for k in required if not payload.get(k)]
-    if missing:
-        raise HTTPException(status_code=422, detail=f"Missing required fields: {', '.join(missing)}")
-
-    rid = str(uuid4())
-    req = {
+def create_access_request(payload: AccessRequestCreate):
+    """
+    MVP:
+      - Crea solicitud PENDING.
+      - Owner es el ÚNICO aprobador (requisito tuyo).
+    Producción:
+      - Validar requester autenticado (IAP/OAuth)
+      - Validar que linked_resource existe en Dataplex/BigQuery
+      - Enviar notificación (PubSub/Email/Chat)
+    """
+    rid = str(uuid.uuid4())
+    item = {
         "id": rid,
-        "linked_resource": payload["linked_resource"],
-        "reason": payload["reason"],
-        "requested_role": payload.get("requested_role", payload.get("access_level", "READER")),
-        "access_level": payload.get("access_level", "READER"),
-        "requester_email": payload["requester_email"],
-        "data_owner": payload.get("data_owner"),
-        "data_steward": payload.get("data_steward"),
+        "linked_resource": payload.linked_resource,
+        "requester_email": payload.requester_email,
+        "access_level": payload.access_level,
+        "reason": payload.reason,
+        "data_owner": payload.data_owner,
         "status": "PENDING",
         "created_at": _now_iso(),
-        "updated_at": _now_iso(),
+        "decided_at": None,
+        "decided_by": None,
         "decision": None,
-        "decision_by": None,
-        "decision_at": None,
-        "decision_reason": None,
     }
-    _REQUESTS[rid] = req
-    return {"ok": True, "item": req}
+    _DB[rid] = item
+    return {"ok": True, "item": item}
 
 
 @router.get("/access-requests")
 def list_access_requests(
-    status: str = Query("PENDING", description="PENDING|APPROVED|REJECTED"),
-    limit: int = Query(50, ge=1, le=500),
+    status: Optional[str] = Query(default=None, description="PENDING/APPROVED/REJECTED"),
+    approver_email: Optional[str] = Query(default=None, description="Email del owner que aprueba"),
 ):
-    seed_if_empty()
+    """
+    MVP:
+      - Si viene approver_email: filtra por data_owner=approver_email
+      - Si no viene approver_email: devuelve todo (para ADMIN mock)
+    Producción:
+      - Autorizar por rol (owner/admin) a ver solicitudes
+    """
+    items = list(_DB.values())
 
-    items = list(_REQUESTS.values())
+    if approver_email:
+        items = [x for x in items if x.get("data_owner") == approver_email]
+
     if status:
         items = [x for x in items if x.get("status") == status]
 
-    # latest first
-    items.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return {"ok": True, "items": items[:limit]}
+    # Orden newest first
+    items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+
+    return {"items": items, "total": len(items)}
 
 
-def _get_or_404(rid: str) -> dict:
-    req = _REQUESTS.get(rid)
-    if not req:
+@router.post("/access-requests/{request_id}/decision")
+def decide_access_request(request_id: str, payload: AccessRequestDecision):
+    """
+    MVP:
+      - Solo permite decidir si decided_by == data_owner (o es admin en prod)
+      - Cambia status a APPROVED/REJECTED
+    Producción:
+      - Aplicar IAM real (BigQuery dataset/table IAM o Dataplex policy)
+      - Registrar auditoría
+    """
+    item = _DB.get(request_id)
+    if not item:
         raise HTTPException(status_code=404, detail="Request not found")
-    return req
 
+    owner = item.get("data_owner")
+    if payload.decided_by != owner:
+        # En producción permitir ADMIN también
+        raise HTTPException(status_code=403, detail="Only Data Owner can approve/reject in this MVP")
 
-@router.post("/access-requests/{request_id}/approve")
-def approve_access_request(
-    request_id: str,
-    actor_email: str = Body(..., embed=True),
-    comment: Optional[str] = Body(None, embed=True),
-):
-    seed_if_empty()
-    req = _get_or_404(request_id)
-    if req["status"] != "PENDING":
-        raise HTTPException(status_code=409, detail=f"Request is {req['status']}, cannot approve")
+    decision = payload.decision.upper().strip()
+    if decision not in ("APPROVED", "REJECTED"):
+        raise HTTPException(status_code=400, detail="decision must be APPROVED or REJECTED")
 
-    req["status"] = "APPROVED"
-    req["decision"] = "APPROVED"
-    req["decision_by"] = actor_email
-    req["decision_at"] = _now_iso()
-    req["decision_reason"] = comment
-    req["updated_at"] = _now_iso()
+    item["status"] = decision
+    item["decision"] = decision
+    item["decided_by"] = payload.decided_by
+    item["decided_at"] = _now_iso()
 
-    # En producción: aquí disparas workflow real (Dataplex / BigQuery IAM / Datasets / row-level security, etc.)
-    return {"ok": True, "item": req}
-
-
-@router.post("/access-requests/{request_id}/reject")
-def reject_access_request(
-    request_id: str,
-    actor_email: str = Body(..., embed=True),
-    comment: Optional[str] = Body(None, embed=True),
-):
-    seed_if_empty()
-    req = _get_or_404(request_id)
-    if req["status"] != "PENDING":
-        raise HTTPException(status_code=409, detail=f"Request is {req['status']}, cannot reject")
-
-    req["status"] = "REJECTED"
-    req["decision"] = "REJECTED"
-    req["decision_by"] = actor_email
-    req["decision_at"] = _now_iso()
-    req["decision_reason"] = comment
-    req["updated_at"] = _now_iso()
-
-    return {"ok": True, "item": req}
+    _DB[request_id] = item
+    return {"ok": True, "item": item}

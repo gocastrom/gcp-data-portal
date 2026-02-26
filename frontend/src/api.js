@@ -1,26 +1,17 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-// MVP: usuario mock desde UI
-function defaultHeaders() {
-  const email = localStorage.getItem("user_email") || "user@company.com";
-  const role = localStorage.getItem("user_role") || "USER";
-  const mock = localStorage.getItem("mock_mode") || "1"; // 1=sin GCP, 0=con GCP
-  return {
-    "X-User-Email": email,
-    "X-User-Role": role,
-    "X-Mock": mock
-  };
-}
+async function http(path, { method = "GET", query, body, headers } = {}) {
+  const url = new URL(API_BASE + path);
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => {
+      if (v != null) url.searchParams.set(k, String(v));
+    });
+  }
 
-async function fetchJson(path, opts = {}) {
-  const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...defaultHeaders(),
-      ...(opts.headers || {})
-    }
+  const res = await fetch(url.toString(), {
+    method,
+    headers: { "Content-Type": "application/json", ...(headers || {}) },
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   const text = await res.text();
@@ -28,29 +19,44 @@ async function fetchJson(path, opts = {}) {
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    data = { raw: text };
+    data = { message: text };
   }
 
   if (!res.ok) {
-    const msg =
-      (data && (data.detail || data.message)) ||
-      `HTTP ${res.status} ${res.statusText}`;
-    throw new Error(msg);
+    const msg = (data && (data.detail || data.message)) || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
   }
   return data;
 }
 
 export const api = {
-  // Catalog schema (Dataplex/BigQuery metadata)
-  getSchema: (linked_resource) => {
-    const params = new URLSearchParams({ linked_resource });
-    return fetchJson(`/assets/schema?${params.toString()}`, { method: "GET" });
+  // Catalog
+  search(q, { page_size = 25, system, type, domain, tags } = {}) {
+    return http("/search", { query: { q, page_size, system, type, domain, tags } });
+  },
+  getSchema(linked_resource) {
+    return http("/assets/schema", { query: { linked_resource } });
   },
 
-  updateSchema: (payload) => {
-    return fetchJson(`/assets/schema`, {
-      method: "PATCH",
-      body: JSON.stringify(payload)
+  // Access Requests
+  createAccessRequest(payload) {
+    return http("/access-requests", { method: "POST", body: payload });
+  },
+  listAccessRequests({ status, approver_email } = {}) {
+    return http("/access-requests", { query: { status, approver_email } });
+  },
+  decideAccessRequest(request_id, { decision, decided_by } = {}) {
+    return http(`/access-requests/${encodeURIComponent(request_id)}/decision`, {
+      method: "POST",
+      body: { decision, decided_by },
     });
-  }
+  },
+
+  // Audit (solo admin en UI; backend puede ser mock)
+  audit({ limit = 50 } = {}) {
+    return http("/audit", { query: { limit } });
+  },
 };

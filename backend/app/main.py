@@ -1,23 +1,59 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.bq_schema import router as schema_router
+# Routers (si existen en tu repo)
+try:
+    from app.gcp_catalog import router as catalog_router
+except Exception:
+    catalog_router = None
 
-# Si ya tienes otros routers, luego los vuelves a agregar aquí.
-# (IMPORTANTE: no uses "from ... import router" si el archivo no define router)
+try:
+    from app.access_requests import router as access_router
+except Exception:
+    access_router = None
 
-app = FastAPI(title="GCP Data Portal API", version="0.2")
+try:
+    from app.assets import router as assets_router
+except Exception:
+    assets_router = None
 
+try:
+    from app.bq_preview import router as preview_router
+except Exception:
+    preview_router = None
+
+# Audit router (MVP)
+from app.audit import router as audit_router
+
+app = FastAPI(title="GCP Data Portal (MVP)", version="0.1.0")
+
+# CORS (MVP local)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],  # producción: fija tu dominio
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 @app.get("/health")
 def health():
     return {"ok": True}
 
-app.include_router(schema_router)
+
+# Registrar routers disponibles
+if catalog_router:
+    app.include_router(catalog_router)
+
+if access_router:
+    app.include_router(access_router)
+
+if assets_router:
+    app.include_router(assets_router)
+
+if preview_router:
+    app.include_router(preview_router)
+
+# Siempre incluimos audit (mock)
+app.include_router(audit_router)
